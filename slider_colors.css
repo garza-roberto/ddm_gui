@@ -1,0 +1,31 @@
+/* Dash 4.x slider colours — loaded after Dash internals via assets/ folder */
+
+/* ── noise_sigma = Diffusion = deepskyblue #00bfff ── */
+.param-slider-noise_sigma .dash-slider-range        { background: #00bfff !important; }
+.param-slider-noise_sigma .dash-slider-track        { background: #00bfff22 !important; }
+.param-slider-noise_sigma [data-radix-slider-thumb] { background: #00bfff !important; border-color: #00bfff !important; box-shadow: 0 0 8px #00bfffaa !important; }
+
+/* ── scaling_factor = Drift = deeppink #ff1493 ── */
+.param-slider-scaling_factor .dash-slider-range        { background: #ff1493 !important; }
+.param-slider-scaling_factor .dash-slider-track        { background: #ff149322 !important; }
+.param-slider-scaling_factor [data-radix-slider-thumb] { background: #ff1493 !important; border-color: #ff1493 !important; box-shadow: 0 0 8px #ff1493aa !important; }
+
+/* ── leak = Leak = orange #ffa500 ── */
+.param-slider-leak .dash-slider-range        { background: #ffa500 !important; }
+.param-slider-leak .dash-slider-track        { background: #ffa50022 !important; }
+.param-slider-leak [data-radix-slider-thumb] { background: #ffa500 !important; border-color: #ffa500 !important; box-shadow: 0 0 8px #ffa500aa !important; }
+
+/* ── residual_after_bout = Reset = springgreen #00ff7f ── */
+.param-slider-residual_after_bout .dash-slider-range        { background: #00ff7f !important; }
+.param-slider-residual_after_bout .dash-slider-track        { background: #00ff7f22 !important; }
+.param-slider-residual_after_bout [data-radix-slider-thumb] { background: #00ff7f !important; border-color: #00ff7f !important; box-shadow: 0 0 8px #00ff7faa !important; }
+
+/* ── inactive_time = Delay = tomato #ff6347 ── */
+.param-slider-inactive_time .dash-slider-range        { background: #ff6347 !important; }
+.param-slider-inactive_time .dash-slider-track        { background: #ff634722 !important; }
+.param-slider-inactive_time [data-radix-slider-thumb] { background: #ff6347 !important; border-color: #ff6347 !important; box-shadow: 0 0 8px #ff6347aa !important; }
+
+/* ── threshold = Boundary = white #ffffff ── */
+.param-slider-threshold .dash-slider-range        { background: #ffffff !important; }
+.param-slider-threshold .dash-slider-track        { background: #ffffff22 !important; }
+.param-slider-threshold [data-radix-slider-thumb] { background: #ffffff !important; border-color: #ffffff !important; box-shadow: 0 0 8px #ffffffaa !important; }
