@@ -121,14 +121,17 @@ def segments_to_signal(coherence, segments, input_law_fn, dt):
 def run_batch(scaling_factor, threshold, noise_sigma, leak,
               inactive_time, residual_after_bout,
               coherences, segments, input_law_fn,
-              n_trials=60, dt=0.002):
+              n_trials=30, dt=0.002, base_seed=None):
+    """If base_seed is None, trials are truly random (seed=None each).
+    If base_seed is an int, trial seeds are base_seed + offset for reproducibility."""
     results = {}
     for coh in coherences:
         signal, _ = segments_to_signal(coh, segments, input_law_fn, dt)
         results[coh] = [
             simulate_trial(scaling_factor, threshold, noise_sigma, leak,
                            inactive_time, residual_after_bout,
-                           signal, dt=dt, seed=k)
+                           signal, dt=dt,
+                           seed=(base_seed + k) if base_seed is not None else None)
             for k in range(n_trials)
         ]
     return results
@@ -199,7 +202,7 @@ AXIS_STYLE = dict(
 )
 
 DEFAULT_COHERENCES = [0.0, 0.25, 0.5, 1.0]
-PLOT_IDS = ["psychometric", "chronometric", "ibi", "trajectory"]
+PLOT_IDS = ["psychometric", "coh-ibi", "chronometric", "ibi", "trajectory"]
 
 
 def coh_label(c):
@@ -266,6 +269,40 @@ def build_psychometric(batch, coherences, err_metric="sem"):
     )
     return fig
 
+
+
+def build_coh_ibi(batch, coherences, err_metric="sem"):
+    """Mean IBI (across all bouts, both decisions) vs coherence."""
+    means, errs = [], []
+    for coh in coherences:
+        all_rt = np.concatenate([np.asarray(t["rt"]) for t in batch[coh]])
+        all_rt = all_rt[np.isfinite(all_rt)]
+        if len(all_rt) == 0:
+            means.append(np.nan); errs.append(0.0)
+        else:
+            means.append(float(np.mean(all_rt)))
+            errs.append(_error_array(all_rt, err_metric))
+    x_pct = [c * 100 for c in coherences]
+    err_label = "SD" if err_metric == "sd" else "SEM"
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(
+        x=x_pct, y=means,
+        error_y=dict(array=errs, color="rgba(255,255,255,0.55)",
+                     thickness=1.5, width=5),
+        mode="lines+markers",
+        line=dict(color="#ffffff", width=2),
+        marker=dict(size=8, color="#ffffff", line=dict(color=DARK_BG, width=1.5)),
+        name=f"Mean IBI ± {err_label}",
+    ))
+    fig.update_layout(
+        **PLOT_LAYOUT,
+        title=dict(text=f"Coherence vs IBI  (± {err_label})",
+                   font=dict(size=13), x=0.5),
+        xaxis=dict(**AXIS_STYLE, title="Coherence (%)",
+                   tickvals=x_pct, ticktext=[coh_label(c) for c in coherences]),
+        yaxis=dict(**AXIS_STYLE, title="Mean IBI (s)"),
+    )
+    return fig
 
 def build_chronometric(batch, coherences, bin_width_s=1.0, err_metric="sem"):
     """Green palette: lightest = highest coherence, darkest = lowest.
@@ -379,7 +416,7 @@ def build_ibi_distributions(batch, coherences):
     fig = make_subplots(
         rows=2, cols=n_coh,
         shared_xaxes=True, shared_yaxes=True,
-        row_titles=["Correct (upper boundary)", "Incorrect (lower boundary)"],
+        row_titles=["Correct", "Incorrect"],
         column_titles=[coh_label(c) for c in coherences],
         vertical_spacing=0.14, horizontal_spacing=0.06,
     )
@@ -409,10 +446,10 @@ def build_ibi_distributions(batch, coherences):
 
 def build_trajectory(scaling_factor, threshold, noise_sigma, leak,
                      inactive_time, residual_after_bout,
-                     coherence, segments, input_law_fn, dt=0.002):
+                     coherence, segments, input_law_fn, dt=0.002, seed=None):
     signal, total_dur = segments_to_signal(coherence, segments, input_law_fn, dt)
     trial = simulate_trial(scaling_factor, threshold, noise_sigma, leak,
-                           inactive_time, residual_after_bout, signal, dt=dt, seed=42)
+                           inactive_time, residual_after_bout, signal, dt=dt, seed=seed)
     t   = np.asarray(trial["t_axis"])
     dv  = np.asarray(trial["dv"])
     decisions = np.asarray(trial["decisions"])
@@ -435,11 +472,12 @@ def build_trajectory(scaling_factor, threshold, noise_sigma, leak,
     fig.add_hrect(y0=-threshold * 1.18, y1=-threshold,
                   fillcolor=f"rgba({yh},{yg},{yb_c},0.07)", line_width=0)
 
+    thr_label = f"{threshold:.2f}".rstrip("0").rstrip(".")
     fig.add_hline(y= threshold, line=dict(color=ACCENT, width=1.5, dash="dash"),
-                  annotation_text="+θ", annotation_position="right",
+                  annotation_text=f"+{thr_label}", annotation_position="right",
                   annotation_font=dict(color=ACCENT, size=11))
     fig.add_hline(y=-threshold, line=dict(color=YELLOW, width=1.5, dash="dash"),
-                  annotation_text="−θ", annotation_position="right",
+                  annotation_text=f"−{thr_label}", annotation_position="right",
                   annotation_font=dict(color=YELLOW, size=11))
     fig.add_hline(y=0, line=dict(color=MUTED, width=0.8, dash="dot"))
     fig.add_trace(go.Scatter(x=t, y=dv, mode="lines",
@@ -495,7 +533,7 @@ DEFAULTS = dict(
     inactive_time=0.1,
     threshold=1.0,
     traj_coh=0.5,
-    n_trials=60,
+    n_trials=30,
     input_law="sqrt",
 )
 
@@ -673,6 +711,38 @@ sidebar = dbc.Col([
           for pid, lbl, mn, mx, step in PARAM_SPECS],
 
         html.Hr(className="divider"),
+        html.H6("SIMULATION", className="section-title"),
+        dbc.Row([
+            dbc.Col(html.Label("Update mode", className="param-label"), width=5),
+            dbc.Col(dbc.RadioItems(
+                id="update-mode",
+                options=[{"label": "Manual", "value": "manual"},
+                         {"label": "Auto",   "value": "auto"}],
+                value="manual", inline=True,
+                className="update-mode-radio",
+            ), width=7),
+        ], className="param-row g-2"),
+        dbc.Row([
+            dbc.Col(html.Label("Number of trials", className="param-label"), width=6),
+            dbc.Col(dbc.Input(id="n-trials", type="number", value=DEFAULTS["n_trials"],
+                              min=10, max=500, step=10, size="sm",
+                              className="val-input", debounce=True), width=4),
+        ], className="param-row g-2"),
+        dbc.Row([
+            dbc.Col(dbc.RadioItems(
+                id="seed-mode",
+                options=[{"label": "No seed", "value": "none"},
+                         {"label": "Seed",    "value": "fixed"}],
+                value="none", inline=True,
+                className="update-mode-radio",
+            ), width=6),
+            dbc.Col(dbc.Input(id="rng-seed", type="number", value=None,
+                              min=0, max=2**31-1, step=1, size="sm",
+                              placeholder="integer…",
+                              className="val-input", debounce=True,
+                              disabled=True), width=5),
+        ], className="param-row g-2 align-items-center"),
+        html.Hr(className="divider"),
         html.H6("INPUT LAW", className="section-title"),
         dbc.Row([dbc.Col(dcc.Dropdown(
             id="input-law",
@@ -691,36 +761,9 @@ sidebar = dbc.Col([
         dcc.Store(id="seg-store", data=DEFAULT_SEGMENTS),
 
         html.Hr(className="divider"),
-        html.H6("SIMULATION", className="section-title"),
+        html.H6("VISUALIZATION", className="section-title"),
         dbc.Row([
-            dbc.Col(html.Label("Update mode", className="param-label"), width=5),
-            dbc.Col(dbc.RadioItems(
-                id="update-mode",
-                options=[{"label": "Manual", "value": "manual"},
-                         {"label": "Auto",   "value": "auto"}],
-                value="manual", inline=True,
-                className="update-mode-radio",
-            ), width=7),
-        ], className="param-row g-2"),
-        dbc.Row([
-            dbc.Col(html.Label("Trials / level", className="param-label"), width=6),
-            dbc.Col(dbc.Input(id="n-trials", type="number", value=DEFAULTS["n_trials"],
-                              min=10, max=500, step=10, size="sm",
-                              className="val-input", debounce=True), width=4),
-        ], className="param-row g-2"),
-        dbc.Row([
-            dbc.Col(html.Label("Trajectory level", className="param-label"), width=6),
-            dbc.Col(dcc.Dropdown(
-                id="traj-coh",
-                options=[{"label": coh_label(c), "value": c} for c in DEFAULT_COHERENCES],
-                value=DEFAULTS["traj_coh"], clearable=False, className="coh-dropdown",
-            ), width=5),
-        ], className="param-row g-2"),
-
-        html.Hr(className="divider"),
-        html.H6("ERROR BARS", className="section-title"),
-        dbc.Row([
-            dbc.Col(html.Label("Metric", className="param-label"), width=4),
+            dbc.Col(html.Label("Error bars", className="param-label"), width=4),
             dbc.Col(dbc.RadioItems(
                 id="err-metric",
                 options=[{"label": "SEM", "value": "sem"},
@@ -729,6 +772,14 @@ sidebar = dbc.Col([
                 className="update-mode-radio",
             ), width=8),
         ], className="param-row g-2"),
+        dbc.Row([
+            dbc.Col(html.Label("Trajectory displayed (coherence)", className="param-label"), width=7),
+            dbc.Col(dcc.Dropdown(
+                id="traj-coh",
+                options=[{"label": coh_label(c), "value": c} for c in DEFAULT_COHERENCES],
+                value=DEFAULTS["traj_coh"], clearable=False, className="coh-dropdown",
+            ), width=5),
+        ], className="param-row g-2 align-items-center"),
 
         html.Hr(className="divider"),
         dbc.Button("⟳  Run Simulation", id="run-btn", color="primary",
@@ -743,12 +794,12 @@ plots_area = dbc.Col([
         id="plots-loading",
         type="circle",
         color="#4f98a3",
-        # overlay_style keeps plots visible while spinner shows
         overlay_style={"visibility": "visible", "opacity": 0.4,
                        "backgroundColor": "transparent"},
         children=[
             dbc.Row([
-                dbc.Col(plot_panel("psychometric"), width=6),
+                dbc.Col(plot_panel("psychometric"), width=3),
+                dbc.Col(plot_panel("coh-ibi"),      width=3),
                 dbc.Col(plot_panel("chronometric"), width=6),
             ], className="plot-row"),
             dbc.Row([
@@ -910,6 +961,14 @@ def update_segments(_, remove_clicks, dur_values, scale_values, current_segs):
 
 # ── Main simulation callback → writes batch-store ─────────────────────────────
 @app.callback(
+    Output("rng-seed", "disabled"),
+    Input("seed-mode", "value"),
+)
+def toggle_seed_input(mode):
+    return mode != "fixed"
+
+
+@app.callback(
     Output("batch-store",     "data"),
     Output("coh-order-store", "data"),
     Output("seg-dur-store",   "data"),
@@ -920,6 +979,8 @@ def update_segments(_, remove_clicks, dur_values, scale_values, current_segs):
     *[Input(f"slider-{pid}", "value") for pid, *_ in PARAM_SPECS],
     State("update-mode", "value"),
     State("n-trials",    "value"),
+    State("seed-mode",   "value"),
+    State("rng-seed",    "value"),
     State("traj-coh",    "value"),
     State("coh-store",   "data"),
     State("seg-store",   "data"),
@@ -929,7 +990,7 @@ def update_segments(_, remove_clicks, dur_values, scale_values, current_segs):
 )
 def run_simulation(run_clicks,
                    ns_in, sf_in, lk_in, ra_in, it_in, th_in,
-                   update_mode, n_trials, traj_coh, coherences, segments, input_law_key,
+                   update_mode, n_trials, seed_mode, rng_seed, traj_coh, coherences, segments, input_law_key,
                    ns_st, sf_st, lk_st, ra_st, it_st, th_st):
     # Input/State order matches PARAM_SPECS:
     #   noise_sigma, scaling_factor, leak, residual_after_bout, inactive_time, threshold
@@ -947,6 +1008,7 @@ def run_simulation(run_clicks,
     inactive_time       = _f(it_st, DEFAULTS["inactive_time"])
     threshold           = _f(th_st, DEFAULTS["threshold"])
     n_trials       = int(n_trials or DEFAULTS["n_trials"])
+    base_seed      = int(rng_seed) if (seed_mode == "fixed" and rng_seed is not None) else None
     coherences     = sorted(coherences or DEFAULT_COHERENCES)
     segments       = segments or DEFAULT_SEGMENTS
     input_law_key  = input_law_key or DEFAULTS["input_law"]
@@ -961,18 +1023,21 @@ def run_simulation(run_clicks,
         scaling_factor, threshold, noise_sigma, leak,
         inactive_time, residual_after_bout,
         coherences, segments, input_law_fn,
-        n_trials=n_trials, dt=0.002,
+        n_trials=n_trials, dt=0.002, base_seed=base_seed,
     )
+    fig_coh_ibi = build_coh_ibi(batch, coherences)
     fig_ibi  = build_ibi_distributions(batch, coherences)
     fig_traj = build_trajectory(
         scaling_factor, threshold, noise_sigma, leak,
         inactive_time, residual_after_bout,
         traj_coh, segments, input_law_fn, dt=0.002,
+        seed=base_seed,
     )
     total_bouts = sum(sum(t["n_bouts"] for t in batch[c]) for c in coherences)
     mode_tag = "⚡ auto" if update_mode == "auto" else "⟳ manual"
+    seed_tag = f"seed={base_seed}" if base_seed is not None else "seed=random"
     msg = (f"[{mode_tag}]  {n_trials} trials × {len(coherences)} levels  ·  "
-           f"{total_bouts} bouts  ·  {total_dur:.0f} s/trial")
+           f"{total_bouts} bouts  ·  {total_dur:.0f} s/trial  ·  {seed_tag}")
 
     store_data = batch_to_store(batch, coherences)
     return store_data, coherences, total_dur, fig_ibi, fig_traj, msg
@@ -983,6 +1048,7 @@ def run_simulation(run_clicks,
 # Never calls run_batch → instant redraw.
 @app.callback(
     Output("fig-psychometric", "figure"),
+    Output("fig-coh-ibi",      "figure"),
     Output("fig-chronometric", "figure"),
     Input("err-metric",     "value"),
     Input("batch-store",    "data"),
@@ -998,10 +1064,11 @@ def redraw_err_plots(err_metric, store_data, coherences, total_dur):
     coherences = sorted(coherences)
     total_dur  = float(total_dur or 30.0)
     bin_w      = max(1.0, total_dur / 60)
-    fig_psy  = build_psychometric(batch, coherences, err_metric=err_metric or "sem")
-    fig_chro = build_chronometric(batch, coherences, bin_width_s=bin_w,
-                                  err_metric=err_metric or "sem")
-    return fig_psy, fig_chro
+    err = err_metric or "sem"
+    fig_psy    = build_psychometric(batch, coherences, err_metric=err)
+    fig_cohibi = build_coh_ibi(batch, coherences, err_metric=err)
+    fig_chro   = build_chronometric(batch, coherences, bin_width_s=bin_w, err_metric=err)
+    return fig_psy, fig_cohibi, fig_chro
 
 
 # ─────────────────────────────────────────────────────────────────────────────
