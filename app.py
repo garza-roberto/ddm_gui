@@ -3,9 +3,10 @@ Drift-Diffusion Model (DDM) Interactive Explorer
 =================================================
 Visualizations:
   1. Psychometric curve        – accuracy vs coherence  (white line)
-  2. Chronometric curve        – P(correct) vs time (green palette, light=high coh)
-  3. IBI distributions         – KDE per coherence, correct (blue) / incorrect (yellow)
-  4. DV trajectory             – x(t); lower threshold in IBI-incorrect yellow
+  2. Decision latency curve    – interswim interval vs coherence  (white line)
+  3. Chronometric curve        – P(correct) vs time (green palette, light=high coh)
+  4. IBI distributions         – KDE per coherence, correct (blue) / incorrect (yellow)
+  5. DV trajectory             – x(t); lower threshold in IBI-incorrect yellow
 
 Features:
   - Numba-JIT simulation core (compiled at startup via warm-up call)
@@ -522,7 +523,7 @@ app = dash.Dash(
         "https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500"
         "&family=Inter:wght@300;400;500;600&display=swap",
     ],
-    title="DDM Explorer",
+    title="DDM Explorer (Garza et al. 2026)",
 )
 
 DEFAULTS = dict(
@@ -829,10 +830,40 @@ app.layout = html.Div([
     html.Div([
         html.Div([
             dcc.Markdown(LOGO_SVG, dangerously_allow_html=True, className="logo-svg"),
-            html.H1("DDM Explorer", className="app-title"),
+            html.Div([
+                html.H1([
+                    "DDM Explorer",
+                    html.Span(" (Garza et al. 2026)", className="title-citation"),
+                ], className="app-title"),
+                html.Span("Drift-Diffusion Model · Interactive Parameter Explorer",
+                          className="header-subtitle"),
+            ]),
         ], className="header-brand"),
-        html.Span("Drift-Diffusion Model · Interactive Parameter Explorer",
-                  className="header-subtitle"),
+        html.Div([
+            dbc.Button("Cite", id="cite-btn", size="sm", outline=True,
+                       color="light", className="cite-btn"),
+            dbc.Popover(
+                [
+                    dbc.PopoverHeader("APA Citation"),
+                    dbc.PopoverBody([
+                        dcc.Markdown(
+                            "Garza, R., El Hady, A., & Bahl, A. (2026). "
+                            "Developmental and genetic modulation of evidence integration dynamics "
+                            "in zebrafish sensorimotor decision-making. "
+                            "*bioRxiv*. https://doi.org/10.64898/2026.03.01.708829",
+                            className="cite-text",
+                        ),
+                        dbc.Button("📋 Copy", id="copy-cite-btn", size="sm",
+                                   color="secondary", className="mt-2 w-100"),
+                        html.Div(id="copy-confirm", className="copy-confirm"),
+                    ]),
+                ],
+                target="cite-btn",
+                trigger="click",
+                placement="bottom-end",
+                id="cite-popover",
+            ),
+        ], className="header-right"),
     ], className="app-header"),
     dbc.Container(
         dbc.Row([sidebar, plots_area], className="main-row"),
@@ -1097,7 +1128,20 @@ app.index_string = """
     html, body { background: var(--bg); color: var(--text); font-family: var(--font-body); font-size: 13px; min-height: 100vh; }
     .app-root { min-height: 100vh; display: flex; flex-direction: column; background: var(--bg); }
 
-    .app-header { display: flex; align-items: center; justify-content: space-between; padding: 10px 20px; background: var(--surface); border-bottom: 1px solid var(--border); flex-shrink: 0; }
+    .title-citation { font-size: 0.72rem; font-family: var(--font-mono); color: var(--muted);
+                        font-weight: 400; margin-left: 0.45rem; vertical-align: middle; }
+    .header-right   { display: flex; align-items: center; margin-left: auto; padding-left: 1rem; }
+    .cite-btn       { font-size: 0.75rem !important; padding: 0.25rem 0.9rem !important;
+                      border-color: var(--border) !important; color: var(--muted) !important; }
+    .cite-btn:hover { background: var(--surface-2) !important; color: var(--text) !important; }
+    .cite-text p    { font-size: 0.78rem; line-height: 1.6; color: var(--text); margin-bottom: 0; }
+    .copy-confirm   { font-size: 0.72rem; color: var(--accent); min-height: 1.2em; margin-top: 0.25rem; text-align:center; }
+    .popover        { background: var(--surface) !important; border: 1px solid var(--border) !important;
+                      max-width: 380px !important; }
+    .popover-header { background: var(--surface-2) !important; color: var(--text) !important;
+                      border-bottom: 1px solid var(--border) !important; font-size: 0.8rem !important; }
+    .popover-body   { background: var(--surface) !important; }
+        .app-header { display: flex; align-items: center; justify-content: space-between; padding: 10px 20px; background: var(--surface); border-bottom: 1px solid var(--border); flex-shrink: 0; }
     .header-brand { display: flex; align-items: center; gap: 12px; }
     .logo-svg p { margin: 0; line-height: 0; }
     .logo-svg svg { width: 40px; height: 28px; display: block; }
@@ -1215,9 +1259,31 @@ app.index_string = """
 </html>
 """
 
+clientside_callback(
+    """
+    function(n) {
+        if (!n) return "";
+        const txt = 'Garza, R., El Hady, A., & Bahl, A. (2026). Developmental and genetic modulation of evidence integration dynamics in zebrafish sensorimotor decision-making. bioRxiv. https://doi.org/10.64898/2026.03.01.708829';
+        navigator.clipboard.writeText(txt).catch(function() {
+            var el = document.createElement("textarea");
+            el.value = txt;
+            document.body.appendChild(el);
+            el.select();
+            document.execCommand("copy");
+            document.body.removeChild(el);
+        });
+        return "\u2713 Copied to clipboard";
+    }
+    """,
+    Output("copy-confirm", "children"),
+    Input("copy-cite-btn", "n_clicks"),
+    prevent_initial_call=True,
+)
+
+
 if __name__ == "__main__":
     _warmup()
     print("\n" + "═" * 60)
     print("  DDM Explorer  ·  http://127.0.0.1:8050")
     print("═" * 60 + "\n")
-    app.run(debug=True, port=8050)
+    app.run(debug=False, port=8050)
